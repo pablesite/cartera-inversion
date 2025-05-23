@@ -52,7 +52,7 @@ def filtrar_flujos_validos(df):
 def obtener_cashflows(df):
     return df.apply(
         lambda r: (
-            r["fecha"].to_pydatetime(),
+            r["fecha_hora"].to_pydatetime(),
             -r["importe_euros"]
         ), axis=1
     ).tolist()
@@ -93,14 +93,14 @@ def calcular_rentabilidad_por_activo(df):
             "% rentabilidad_total": rentabilidad_pct,
             "TIR %": tir * 100 if tir is not None else None,
             "n_aportes": sub[(sub["tipo_operacion"] == "aporte") & (~sub["subtipo_operacion"].str.startswith("reinv"))].shape[0],
-            "primera_fecha": sub["fecha"].min(),
-            "última_fecha": sub["fecha"].max()
+            "primera_fecha": sub["fecha_hora"].min(),
+            "última_fecha": sub["fecha_hora"].max()
         })
     return pd.DataFrame(resultados)
 
 def calcular_rentabilidad_anual(df):
     df = df.copy()
-    df["año"] = df["fecha"].dt.year
+    df["año"] = df["fecha_hora"].dt.year
     df["subtipo_operacion"] = df["subtipo_operacion"].fillna("")
 
     aportado = df[df["tipo_operacion"].isin(["aporte", "comision"])].groupby("año")["importe_euros"].sum().reset_index(name="aportado")
@@ -122,19 +122,19 @@ def calcular_tir_desde_df(df, valor_actual):
     cashflows = obtener_cashflows(flujos_validos)
     if not cashflows:
         return None
-    fecha_final = df["fecha"].max().to_pydatetime()
+    fecha_final = df["fecha_hora"].max().to_pydatetime()
     cashflows.append((fecha_final, valor_actual))
     return xirr(cashflows)
 
 def calcular_tir_acumulado_en_tiempo(df, frecuencia="W"):
-    if df.empty or df["fecha"].isna().all():
+    if df.empty or df["fecha_hora"].isna().all():
         return pd.DataFrame()
 
-    fechas = pd.date_range(start=df["fecha"].min(), end=df["fecha"].max(), freq=frecuencia)
+    fechas = pd.date_range(start=df["fecha_hora"].min(), end=df["fecha_hora"].max(), freq=frecuencia)
     resultado = []
 
     for fecha_corte in fechas:
-        df_corte = df[df["fecha"] <= fecha_corte]
+        df_corte = df[df["fecha_hora"] <= fecha_corte]
         flujos_validos = filtrar_flujos_validos(df_corte)
         cashflows = obtener_cashflows(flujos_validos)
 
@@ -155,7 +155,7 @@ def calcular_tir_acumulado_en_tiempo(df, frecuencia="W"):
 
 def calcular_tir_anual(df, xirr_func):
     df = df.copy()
-    df["año"] = df["fecha"].dt.year
+    df["año"] = df["fecha_hora"].dt.year
     df["subtipo_operacion"] = df["subtipo_operacion"].fillna("")
 
     resultado = []
