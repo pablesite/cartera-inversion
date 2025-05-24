@@ -17,6 +17,7 @@ conn = sqlite3.connect("cartera_inversiones.db")
 trans = pd.read_sql("SELECT * FROM transacciones", conn)
 activos = pd.read_sql("SELECT * FROM activos", conn)
 conn.close()
+print(trans.head())
 
 # --- Unir y preparar ---
 df = trans.merge(activos, on="activo", how="left")
@@ -32,6 +33,17 @@ tipo_sel = st.sidebar.multiselect("Tipo de operación", options=df["tipo_operaci
 # --- Aplicar filtros ---
 df = df[(df["fecha_hora"] >= pd.to_datetime(start_date)) & (df["fecha_hora"] <= pd.to_datetime(end_date))]
 df_filtrado = df[df["activo"].isin(activo_sel) & df["tipo_operacion"].isin(tipo_sel)]
+
+if df_filtrado.empty:
+    st.warning("No hay datos para mostrar con los filtros seleccionados.")
+    st.stop()
+
+
+# --- Transacciones ---
+st.subheader("Transacciones filtradas")
+st.dataframe(df_filtrado.sort_values("fecha_hora", ascending=False))
+
+
 
 # --- KPIs generales ---
 aporte_compras = df_filtrado.query("tipo_operacion == 'aporte' and subtipo_operacion == 'compra'")["importe_euros"].sum()
@@ -197,6 +209,3 @@ fig_year.update_layout(
 
 st.plotly_chart(fig_year)
 
-# --- Transacciones ---
-st.subheader("Transacciones filtradas")
-st.dataframe(df_filtrado.sort_values("fecha_hora", ascending=False))

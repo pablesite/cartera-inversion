@@ -54,11 +54,13 @@ with st.form("form_movimiento"):
             data = response.json()
             if data.get("result") == "success":
                 tipo_cambio = data["conversion_rates"].get("EUR", 1.0)
+                tipo_cambio = 1/tipo_cambio
                 st.info(f"Tipo de cambio USD → EUR: {tipo_cambio:.4f}")
             else:
                 st.warning("No se pudo obtener tipo de cambio válido. Se usará 1.0 por defecto.")
         except Exception as e:
             st.error(f"Error al obtener el tipo de cambio. Se usará 1.0. ({e})")
+
 
     if submitted:
         try:
@@ -74,11 +76,12 @@ with st.form("form_movimiento"):
             """, (
                 fecha_hora.strftime("%Y-%m-%d %H:%M:%S"),
                 activo, importe, moneda, tipo_cambio,
-                importe * tipo_cambio, usuario,
+                importe / tipo_cambio, usuario,
                 tipo_operacion, subtipo_operacion, 1.0
             ))
             conn.commit()
             conn.close()
-            st.success("Movimiento registrado con éxito")
+            st.success("Movimiento registrado con éxito. Redirigiendo al dashboard...")
+            st.rerun()
         except Exception as e:
             st.error(f"Error al guardar el movimiento: {e}")

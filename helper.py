@@ -55,7 +55,7 @@ def obtener_cashflows(df):
             r["fecha_hora"].to_pydatetime(),
             -r["importe_euros"]
         ), axis=1
-    ).tolist()
+    ).values.tolist()
 
 def obtener_flotante(df):
     return df[(df["tipo_operacion"] == "otro") & (df["subtipo_operacion"].isin(["revalorizacion", "devaluacion"]))]["importe_euros"].sum()
