@@ -78,7 +78,8 @@ def calcular_rentabilidad_por_activo(df):
         beneficio_consolidado = sub[sub["tipo_operacion"].isin(["beneficio", "perdida"])]["importe_euros"].sum()
         beneficio_flotante = obtener_flotante(sub)
         valor_actual = aporte_neto + beneficio_flotante
-        beneficio_total = beneficio_consolidado + beneficio_flotante
+        #beneficio_total = beneficio_consolidado + beneficio_flotante
+        beneficio_total = valor_actual - aportado
         rentabilidad_pct = (beneficio_total / aportado) * 100 if aportado != 0 else None
 
         tir = calcular_tir_desde_df(sub, valor_actual)

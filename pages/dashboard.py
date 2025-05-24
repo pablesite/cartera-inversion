@@ -17,7 +17,6 @@ conn = sqlite3.connect("cartera_inversiones.db")
 trans = pd.read_sql("SELECT * FROM transacciones", conn)
 activos = pd.read_sql("SELECT * FROM activos", conn)
 conn.close()
-print(trans.head())
 
 # --- Unir y preparar ---
 df = trans.merge(activos, on="activo", how="left")
@@ -25,24 +24,23 @@ df["fecha_hora"] = pd.to_datetime(df["fecha_hora"], errors="coerce")
 df["importe_euros"] = pd.to_numeric(df["importe_euros"], errors="coerce")
 
 # --- Filtros ---
-min_date, max_date = df["fecha_hora"].min(), df["fecha_hora"].max()
+min_date, max_date = df["fecha_hora"].min().date(), df["fecha_hora"].max().date()
 start_date, end_date = st.sidebar.date_input("Rango de fechas", [min_date, max_date], min_value=min_date, max_value=max_date)
+
+# Convertir correctamente a rangos datetime
+start_datetime = pd.to_datetime(start_date)
+end_datetime = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+
 activo_sel = st.sidebar.multiselect("Activo", options=df["activo"].unique(), default=df["activo"].unique())
 tipo_sel = st.sidebar.multiselect("Tipo de operación", options=df["tipo_operacion"].unique(), default=df["tipo_operacion"].unique())
 
 # --- Aplicar filtros ---
-df = df[(df["fecha_hora"] >= pd.to_datetime(start_date)) & (df["fecha_hora"] <= pd.to_datetime(end_date))]
+df = df[(df["fecha_hora"] >= start_datetime) & (df["fecha_hora"] <= end_datetime)]
 df_filtrado = df[df["activo"].isin(activo_sel) & df["tipo_operacion"].isin(tipo_sel)]
 
 if df_filtrado.empty:
     st.warning("No hay datos para mostrar con los filtros seleccionados.")
     st.stop()
-
-
-# --- Transacciones ---
-st.subheader("Transacciones filtradas")
-st.dataframe(df_filtrado.sort_values("fecha_hora", ascending=False))
-
 
 
 # --- KPIs generales ---
@@ -86,6 +84,92 @@ col7, col8, _ = st.columns(3)
 col7.metric("Rentabilidad total (%)", f"{rent_total_sin:.2f} %")
 col8.metric("TIR Cartera", f"{tir_total * 100:.2f} %" if tir_total else "No disponible")
 
+
+
+st.subheader("Evolución del valor de la cartera frente al capital aportado")
+
+df_evolucion = df_filtrado.copy()
+df_evolucion = df_evolucion.sort_values("fecha_hora")
+
+# Aportes netos: compras + comisiones
+df_aportes = df_evolucion[
+    ((df_evolucion["tipo_operacion"] == "aporte") & (df_evolucion["subtipo_operacion"] == "compra")) |
+    (df_evolucion["tipo_operacion"] == "comision")
+].groupby("fecha_hora")["importe_euros"].sum().reset_index(name="aportado")
+
+# Retiradas netas
+df_retiradas = df_evolucion[
+    (df_evolucion["tipo_operacion"] == "retirada") & (df_evolucion["subtipo_operacion"] == "retirada")
+].groupby("fecha_hora")["importe_euros"].sum().reset_index(name="retirado")
+
+# Reinversiones explícitas de beneficios
+df_reinv = df_evolucion[
+    (df_evolucion["tipo_operacion"] == "aporte") & (df_evolucion["subtipo_operacion"].str.startswith("reinv"))
+].groupby("fecha_hora")["importe_euros"].sum().reset_index(name="reinv")
+
+# Ajustes por pérdida explícita
+df_ajuste = df_evolucion[
+    (df_evolucion["tipo_operacion"] == "retirada") & (df_evolucion["subtipo_operacion"] == "ajuste_por_perdida")
+].groupby("fecha_hora")["importe_euros"].sum().reset_index(name="ajuste")
+
+# Beneficio flotante
+df_flotante = df_evolucion[df_evolucion["subtipo_operacion"].isin(["revalorizacion", "devaluacion"])] \
+    .groupby("fecha_hora")["importe_euros"].sum().reset_index(name="beneficio_flotante")
+
+# --- Merge de todo ---
+df_valor = df_aportes \
+    .merge(df_retiradas, on="fecha_hora", how="outer") \
+    .merge(df_reinv, on="fecha_hora", how="outer") \
+    .merge(df_ajuste, on="fecha_hora", how="outer") \
+    .merge(df_flotante, on="fecha_hora", how="outer")
+
+# Ordenar y rellenar con 0s
+df_valor = df_valor.sort_values("fecha_hora").fillna(0)
+
+# Acumulados
+df_valor["aportado"] = df_valor["aportado"].cumsum()
+df_valor["retirado"] = df_valor["retirado"].cumsum()
+df_valor["reinv"] = df_valor["reinv"].cumsum()
+df_valor["ajuste"] = df_valor["ajuste"].cumsum()
+df_valor["beneficio_flotante"] = df_valor["beneficio_flotante"].cumsum()
+
+# Cálculos finales
+df_valor["aportado_neto"] = df_valor["aportado"] + df_valor["retirado"]
+df_valor["valor_cartera"] = (
+    df_valor["aportado_neto"] +
+    df_valor["reinv"] +
+    df_valor["ajuste"] +
+    df_valor["beneficio_flotante"]
+)
+
+# --- Gráfico actualizado ---
+fig_cartera = go.Figure()
+
+fig_cartera.add_trace(go.Scatter(
+    x=df_valor["fecha_hora"], y=df_valor["aportado_neto"],
+    fill="tozeroy", name="Aportado Neto", line=dict(color="gray"), opacity=0.4
+))
+
+fig_cartera.add_trace(go.Scatter(
+    x=df_valor["fecha_hora"], y=df_valor["valor_cartera"],
+    fill="tonexty", name="Valor de Cartera", line=dict(color="steelblue")
+))
+
+fig_cartera.update_layout(
+    title="Valor estimado de la cartera frente al capital aportado",
+    xaxis_title="Fecha",
+    yaxis_title="€ acumulado",
+    hovermode="x unified",
+    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5)
+)
+
+st.plotly_chart(fig_cartera, use_container_width=True)
+
+
+
+
+
+
 # --- Rentabilidad por activo ---
 st.subheader("Rentabilidad porcentual por activo")
 df_rentabilidad = calcular_rentabilidad_por_activo(df_filtrado)
@@ -104,7 +188,6 @@ if not df_rentabilidad.empty:
     )
 else:
     st.info("No hay resultados para mostrar o falta la columna TIR %.")
-
 
 
 # --- Rentabilidad mensual: flotante, neta y porcentaje sobre aportes ---
@@ -209,3 +292,7 @@ fig_year.update_layout(
 
 st.plotly_chart(fig_year)
 
+
+# --- Transacciones ---
+st.subheader("Transacciones filtradas")
+st.dataframe(df_filtrado.sort_values("fecha_hora", ascending=False))
